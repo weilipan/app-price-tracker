@@ -14,11 +14,24 @@ function onOpen() {
 function createTrackingSheet() {
   var ui = SpreadsheetApp.getUi();
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var spreadsheetId = ss.getId(); // 取得試算表 ID
   
   var trackingSheet = ss.getSheetByName("App Tracking");
   var settingsSheet = ss.getSheetByName("Settings");
 
   if (trackingSheet) {
+    var dataRange = trackingSheet.getDataRange();
+    var data = dataRange.getValues();
+    
+    if (data.length > 1) { // 如果有數據（除了標題列）
+      var timestamp = new Date().toISOString().replace(/[-T:]/g, "").slice(0, 12); // 建立時間戳
+      var backupSheetName = "Backup_" + timestamp;
+
+      // **複製原有試算表**
+      trackingSheet.copyTo(ss).setName(backupSheetName);
+      ui.alert("📋 原有的『App Tracking』工作表已備份為『" + backupSheetName + "』。");
+    }
+
     var response = ui.alert(
       "⚠️ 已存在「App Tracking」工作表！",
       "是否要清除所有不相關的工作表，並重新建立？\n\n⚠️ 這將 **清除所有數據**，無法還原！",
@@ -52,38 +65,49 @@ function createTrackingSheet() {
   }
 
   settingsSheet.getRange("A1").setValue("通知 Email").setFontWeight("bold").setBackground("#34a853");
-
-  // **詢問使用者 Email**
-  var emailResponse = ui.prompt("📧 請輸入預設的通知 Email：");
-  var email = emailResponse.getResponseText().trim();
-  if (!email || !email.includes("@")) {
-    email = "your-email@gmail.com"; // 預設值
-  }
-  settingsSheet.getRange("A2").setValue(email);
+  settingsSheet.getRange("A2").setValue("your-email@gmail.com"); // 預設 Email
+  settingsSheet.getRange("B1").setValue("試算表 ID").setFontWeight("bold").setBackground("#4285F4");
+  settingsSheet.getRange("B2").setValue(spreadsheetId); // 自動儲存試算表 ID
 
   // **刪除所有不相關的工作表**
   var sheets = ss.getSheets();
   sheets.forEach(function(sheet) {
     var sheetName = sheet.getName();
-    if (sheetName !== "App Tracking" && sheetName !== "Settings") {
+    if (sheetName !== "App Tracking" && sheetName !== "Settings" && !sheetName.startsWith("Backup_")) {
       ss.deleteSheet(sheet);
     }
   });
 
-  ui.alert("📄 已成功建立「App Tracking」和「Settings」表格，並移除其他不相關的工作表。\n預設 Email: " + email);
+  ui.alert("📄 已成功建立「App Tracking」和「Settings」表格，並自動設定試算表 ID。\n📋 如果原本有數據，已自動備份為「Backup_YYYYMMDDHHMM」。");
 }
+
+
 
 // 🔄 更新 App 價格並發信
 function checkAppPrices() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("App Tracking");
   var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Settings");
-  
-  if (!sheet) {
-    SpreadsheetApp.getUi().alert("⚠️ 找不到 'App Tracking' 表格，請先執行「產生空白表格」。");
+
+  if (!settingsSheet) {
+    Logger.log("⚠️ 找不到 'Settings' 工作表，請先執行「產生空白表格」。");
     return;
   }
 
+  var spreadsheetId = settingsSheet.getRange("B2").getValue(); // 讀取試算表 ID
   var emailRecipient = settingsSheet.getRange("A2").getValue(); // 讀取 Email
+
+  if (!spreadsheetId) {
+    Logger.log("⚠️ 未設定試算表 ID，請重新執行『產生空白表格』。");
+    return;
+  }
+
+  var ss = SpreadsheetApp.openById(spreadsheetId); // **使用試算表 ID 開啟試算表**
+  var sheet = ss.getSheetByName("App Tracking");
+
+  if (!sheet) {
+    Logger.log("⚠️ 找不到 'App Tracking' 表格，請先執行「產生空白表格」。");
+    return;
+  }
+
   var data = sheet.getDataRange().getValues(); 
   var messages = [];  
 
@@ -119,11 +143,13 @@ function checkAppPrices() {
     var subject = "📢 App Store 降價通知";
     var body = messages.join("\n\n");
     MailApp.sendEmail(emailRecipient, subject, body);
-    SpreadsheetApp.getUi().alert("📧 已發送降價通知至 " + emailRecipient);
+    Logger.log("📧 已發送降價通知至 " + emailRecipient);
   } else {
-    SpreadsheetApp.getUi().alert("✅ 今日沒有 App 降價。");
+    Logger.log("✅ 今日沒有 App 降價。");
   }
 }
+
+
 
 // ✉️ 設定通知 Email
 function setNotificationEmail() {
@@ -249,5 +275,3 @@ function showAboutInfo() {
     "🔹 **由 Google Apps Script 自動運行**"
   );
 }
-
-
